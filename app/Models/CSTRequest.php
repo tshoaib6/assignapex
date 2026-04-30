@@ -14,6 +14,7 @@ class CSTRequest extends Model
         'request_type',
         'test_type',
         'region',
+        'city',
         'severity',
         'activity_type',
         'operator',

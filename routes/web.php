@@ -86,6 +86,14 @@ Route::delete('/cstrequest/{id}', [CstFormController::class, 'destroyrequest'])-
 Route::get('/regions/cities', [CSTFormController::class, 'getCitiesByRegion'])->name('regions.cities');
 Route::get('/get-pixel-details', [CSTFormController::class, 'getPixelDetails'])->name('get.pixel.details');
 
+// PM: edit / update / cancel approved requests
+Route::get('/cst-request/{id}/edit',   [CSTFormController::class, 'editRequest'])->name('cstform.request.edit');
+Route::put('/cst-request/{id}/update', [CSTFormController::class, 'updateRequest'])->name('cstform.request.update');
+Route::post('/cst-request/{id}/cancel',[CSTFormController::class, 'cancelRequest'])->name('cstform.request.cancel');
+
+// Apex history
+Route::get('/apex-history', [CSTFormController::class, 'apexHistory'])->name('apex.history');
+
 // approve / reject
 Route::post('/cst-request/{id}/approve', [CstFormController::class, 'approve'])->name('cst-request.approve');
 Route::get('/cst-view/{id}/', [CstFormController::class, 'viewreport'])->name('cstform.view');

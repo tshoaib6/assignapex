@@ -668,70 +668,88 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
     $(document).ready(function() {
-        $('#pixelid, #regionSelect, #citySelect').select2({
-            width: '100%'
-        });
+        $('#pixelid, #regionSelect, #citySelect').select2({ width: '100%' });
 
-        // Pixel ID change handler
+        // When Pixel ID is selected, auto-populate Region and City
         $('#pixelid').on('change', function() {
             const pixelId = $(this).val();
-            if (!pixelId) return;
+
+            if (!pixelId) {
+                // Clear pixel-locked fields when pixel is deselected
+                $('#regionSelect').prop('disabled', false).closest('.form-group').find('.pixel-badge').remove();
+                $('#citySelect').prop('disabled', false).closest('.form-group').find('.pixel-badge').remove();
+                return;
+            }
 
             $.ajax({
                 url: '{{ route("get.pixel.details") }}',
                 type: 'GET',
                 data: { pixel_id: pixelId },
                 success: function(response) {
-                    // Set Region
-                    if (response.region) {
-                        $('#regionSelect').val(response.region).trigger('change');
+                    if (!response.region) return;
 
-                        // Wait for cities to load then set city
-                        // We need to wait for the AJAX call in the region change handler to complete
-                        // A simple timeout is unreliable. A better way is to use a promise or check if options are populated.
+                    // --- Set Region via Select2 ---
+                    // Try exact match first, then case-insensitive
+                    let regionVal = response.region;
+                    let found = $('#regionSelect option').filter(function() {
+                        return $(this).val().toLowerCase() === regionVal.toLowerCase();
+                    });
+                    if (found.length) regionVal = found.first().val();
 
-                        // Let's use a polling mechanism to check if the city select has options
-                        let attempts = 0;
-                        const maxAttempts = 20; // 2 seconds max
+                    $('#regionSelect').val(regionVal).trigger('change');
+                    showPixelBadge('#regionSelect');
 
-                        const checkCityOptions = setInterval(function() {
-                            attempts++;
-                            const citySelect = $('#citySelect');
+                    // --- After region change loads cities, set City ---
+                    const targetCity = response.city || '';
+                    let cityAttempts = 0;
+                    const cityTimer = setInterval(function() {
+                        cityAttempts++;
+                        const $cityOpts = $('#citySelect option');
 
-                            // Check if options are loaded (more than just the default placeholder)
-                            if (citySelect.find('option').length > 1) {
-                                clearInterval(checkCityOptions);
+                        if ($cityOpts.length > 1) {
+                            clearInterval(cityTimer);
 
-                                if (response.city) {
-                                    // Try to find the city option
-                                    const cityOption = citySelect.find(`option[value="${response.city}"]`);
-
-                                    if (cityOption.length > 0) {
-                                        citySelect.val(response.city).trigger('change');
-
-                                        // Manually set lat/long if available in the response (from pixel table)
-                                        // This overrides the city default lat/long if pixel has specific coordinates
-                                        if (response.lat) $('#latitude').val(response.lat);
-                                        if (response.lon) $('#longitude').val(response.lon);
-                                    } else {
-                                        console.warn(`City "${response.city}" not found in dropdown for region "${response.region}"`);
-                                        // Fallback: if city not found in dropdown, maybe just set lat/long from pixel
-                                        if (response.lat) $('#latitude').val(response.lat);
-                                        if (response.lon) $('#longitude').val(response.lon);
-                                    }
+                            if (targetCity) {
+                                // Case-insensitive match
+                                let cityFound = $cityOpts.filter(function() {
+                                    return $(this).val().toLowerCase() === targetCity.toLowerCase();
+                                });
+                                if (!cityFound.length) {
+                                    // Partial match fallback
+                                    cityFound = $cityOpts.filter(function() {
+                                        return $(this).val().toLowerCase().includes(targetCity.toLowerCase().substring(0, 5));
+                                    });
                                 }
-                            } else if (attempts >= maxAttempts) {
-                                clearInterval(checkCityOptions);
-                                console.error('Timeout waiting for city options to load');
+                                const cityVal = cityFound.length ? cityFound.first().val() : '';
+                                if (cityVal) {
+                                    $('#citySelect').val(cityVal).trigger('change');
+                                    showPixelBadge('#citySelect');
+                                }
                             }
-                        }, 100);
-                    }
+
+                            // Always set lat/lon from pixel
+                            if (response.lat) $('#latitude').val(response.lat);
+                            if (response.lon) $('#longitude').val(response.lon);
+
+                        } else if (cityAttempts >= 30) {
+                            clearInterval(cityTimer);
+                            // Lat/lon still available
+                            if (response.lat) $('#latitude').val(response.lat);
+                            if (response.lon) $('#longitude').val(response.lon);
+                        }
+                    }, 100);
                 },
                 error: function(xhr) {
                     console.error('Error fetching pixel details:', xhr);
                 }
             });
         });
+
+        function showPixelBadge(selector) {
+            const $wrap = $(selector).closest('.col-md-4, .col-md-6');
+            $wrap.find('.pixel-badge').remove();
+            $wrap.append('<small class="pixel-badge text-success"><i class="fa fa-check-circle me-1"></i>Auto-filled from Pixel</small>');
+        }
     });
 </script>
 

@@ -89,16 +89,29 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h4><i class="fa fa-list-alt me-2"></i> All Requests</h4>
-        @if($role == 'User' || $position === 'Project Manager')
-            <a href="{{ route('cstform.create') }}" class="btn btn-primary">
-                <i class="fa fa-plus me-1"></i> Generate Request
-            </a>
-        @endif
+        <div class="d-flex gap-2">
+            @if($position === 'Project Manager')
+                <a href="{{ route('apex.history') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="fa fa-history me-1"></i> Apex History
+                    @isset($apexHistoryCount)
+                        <span class="badge bg-secondary ms-1">{{ number_format($apexHistoryCount) }}</span>
+                    @endisset
+                </a>
+            @endif
+            @if($role == 'User' || $position === 'Project Manager')
+                <a href="{{ route('cstform.create') }}" class="btn btn-primary">
+                    <i class="fa fa-plus me-1"></i> Generate Request
+                </a>
+            @endif
+        </div>
     </div>
 
     <div class="card-body">
         @if(session('status'))
             <div class="alert alert-success">{{ session('status') }}</div>
+        @endif
+        @if(session('success'))
+            <div class="alert alert-success">{{ session('success') }}</div>
         @endif
 
         <table class="table table-bordered table-striped">
@@ -177,11 +190,12 @@
                     @foreach($CSTForm as $data)
                         @php
                             $statusMap = [
-                                '1' => ['label' => 'Pending', 'class' => 'warning'],
-                                '2' => ['label' => 'Approved', 'class' => 'success'],
-                                '3' => ['label' => 'Rejected', 'class' => 'danger'],
-                                '4' => ['label' => 'Ongoing', 'class' => 'info'],
+                                '1' => ['label' => 'Pending',   'class' => 'warning'],
+                                '2' => ['label' => 'Approved',  'class' => 'success'],
+                                '3' => ['label' => 'Rejected',  'class' => 'danger'],
+                                '4' => ['label' => 'Ongoing',   'class' => 'info'],
                                 '5' => ['label' => 'Completed', 'class' => 'primary'],
+                                '6' => ['label' => 'Cancelled', 'class' => 'secondary'],
                             ];
                             $step = $data->step;
                             $statusValue = $data->status;
@@ -209,7 +223,19 @@
                             </td>
                             <td>{{ $data->created_at->toDayDateTimeString() ?? 'N/A'}}</td>
                             <td>
-                                @if(Auth::id() == ($data->user->id ?? null) && $data->status == 1)
+                                {{-- PM: modify/cancel approved tickets only --}}
+                                @if($data->status == 2)
+                                    <a href="{{ route('cstform.request.edit', $data->id) }}" class="btn btn-sm btn-warning ms-1" title="Modify">
+                                        <i class="fa fa-edit"></i>
+                                    </a>
+                                    <form action="{{ route('cstform.request.cancel', $data->id) }}" method="POST" class="d-inline"
+                                          onsubmit="return confirm('Cancel this approved request?')">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-danger ms-1" title="Cancel">
+                                            <i class="fa fa-ban"></i>
+                                        </button>
+                                    </form>
+                                @elseif(Auth::id() == ($data->user->id ?? null) && $data->status == 1)
                                     <form action="{{ route('cstrequest.destroy', $data->id) }}" method="POST" class="d-inline"
                                         onsubmit="return confirm('Delete this request?')">
                                         @csrf

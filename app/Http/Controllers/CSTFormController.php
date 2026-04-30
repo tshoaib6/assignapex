@@ -24,6 +24,7 @@ use App\Models\PostProcessorReport;
 use App\Models\PostProcessorReportValidation;
 use App\Models\PPdataValidation;
 use App\Models\CstPostProcessor;
+use App\Models\ApexHistory;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
@@ -49,7 +50,8 @@ class CSTFormController extends Controller
                           ->orWhereNull('assign_to');
                 })
                 ->get();
-          return view('CSTForm.index', compact('CSTForm','checklists','position','role'));
+          $apexHistoryCount = ApexHistory::count();
+          return view('CSTForm.index', compact('CSTForm','checklists','position','role','apexHistoryCount'));
         }
         elseif ($position === 'Team Lead') {
             $checklists = SelectedChecklist::with('cstRequest')
@@ -109,6 +111,7 @@ class CSTFormController extends Controller
             'kml_path'       => 'nullable',
             'docs'         => 'nullable',
             'pixel_id'      => 'nullable',
+            'area'           => 'nullable|string',
         ]);
 
         $kmlNames = [];
@@ -146,6 +149,7 @@ class CSTFormController extends Controller
             'request_type'   => $validated['request_type'],
             'test_type'      => $validated['test_type'],
             'region'         => $validated['region'],
+            'city'           => $validated['area'] ?? null,
             'severity'       => $validated['severity'],
             'activity_type'  => $validated['activity_type'],
             'operator'       => $validated['operator'],
@@ -1597,6 +1601,106 @@ public function redoacceptance($id)
         }
 
         return response()->json(['error' => 'Pixel not found'], 404);
+    }
+
+    // ── Project Manager: edit an approved CST request ────────────────────────
+    public function editRequest($id)
+    {
+        $cstRequest = CSTRequest::findOrFail($id);
+
+        $user     = Auth::user();
+        $position = optional($user->teamDetail)->position;
+
+        abort_unless($position === 'Project Manager' && (int)$cstRequest->status === 2, 403);
+
+        $regions   = \App\Models\RegionCity::query()
+            ->selectRaw('MIN(TRIM(region)) AS region')
+            ->groupBy('region')
+            ->orderBy('region')
+            ->get();
+        $pixels    = Pixel::orderBy('region')->get(['id', 'grid_id', 'region', 'city']);
+        $scenarios = Scenario::select('scenario_type')->groupBy('scenario_type')->get();
+        $users     = User::role('User')->get();
+
+        return view('CSTForm.edit_request', compact('cstRequest', 'regions', 'pixels', 'scenarios', 'users'));
+    }
+
+    public function updateRequest(Request $request, $id)
+    {
+        $cstRequest = CSTRequest::findOrFail($id);
+
+        $user     = Auth::user();
+        $position = optional($user->teamDetail)->position;
+
+        abort_unless($position === 'Project Manager' && (int)$cstRequest->status === 2, 403);
+
+        $validated = $request->validate([
+            'request_type'   => 'required|string',
+            'test_type'      => 'required|string',
+            'region'         => 'required|string',
+            'area'           => 'nullable|string',
+            'severity'       => 'required|string',
+            'activity_type'  => 'required|string',
+            'operator'       => 'required|string',
+            'latitude'       => 'nullable|string',
+            'longitude'      => 'nullable|string',
+            'scenario_type'  => 'nullable|string',
+            'test_details'   => 'nullable|string',
+            'route_link'     => 'nullable|string',
+            'route_distance' => 'nullable|string',
+            'route_details'  => 'nullable|string',
+            'pixel_id'       => 'nullable|string',
+        ]);
+
+        $cstRequest->update([
+            'request_type'   => $validated['request_type'],
+            'test_type'      => $validated['test_type'],
+            'region'         => $validated['region'],
+            'city'           => $validated['area'] ?? null,
+            'severity'       => $validated['severity'],
+            'activity_type'  => $validated['activity_type'],
+            'operator'       => $validated['operator'],
+            'latitude'       => $validated['latitude'] ?? $cstRequest->latitude,
+            'longitude'      => $validated['longitude'] ?? $cstRequest->longitude,
+            'scenario_type'  => $validated['scenario_type'] ?? $cstRequest->scenario_type,
+            'test_details'   => $validated['test_details'] ?? $cstRequest->test_details,
+            'route_link'     => $validated['route_link'] ?? $cstRequest->route_link,
+            'route_distance' => $validated['route_distance'] ?? $cstRequest->route_distance,
+            'route_details'  => $validated['route_details'] ?? $cstRequest->route_details,
+            'pixel'          => $validated['pixel_id'] ?? $cstRequest->pixel,
+        ]);
+
+        return redirect()->route('cstform.index')->with('success', 'Request updated successfully.');
+    }
+
+    public function cancelRequest($id)
+    {
+        $cstRequest = CSTRequest::findOrFail($id);
+
+        $user     = Auth::user();
+        $position = optional($user->teamDetail)->position;
+
+        abort_unless($position === 'Project Manager' && (int)$cstRequest->status === 2, 403);
+
+        $cstRequest->update(['status' => 6]); // 6 = Cancelled
+
+        return redirect()->route('cstform.index')->with('success', 'Request cancelled successfully.');
+    }
+
+    // ── Apex History ─────────────────────────────────────────────────────────
+    public function apexHistory(Request $request)
+    {
+        $q = trim((string) $request->get('q', ''));
+
+        $history = ApexHistory::query()
+            ->when($q, fn($qry) => $qry->where('process_id', 'like', "%{$q}%")
+                ->orWhere('step_name', 'like', "%{$q}%")
+                ->orWhere('step_user', 'like', "%{$q}%"))
+            ->orderByDesc('step_start')
+            ->paginate(50)
+            ->withQueryString();
+
+        return view('CSTForm.apex_history', compact('history', 'q'));
     }
 
 }
