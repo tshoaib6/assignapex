@@ -262,3 +262,57 @@
         </div>
     </div>
 </div>
+
+@php
+    $authUser   = Auth::user();
+    $authRole   = $authUser->getRoleNames()->first();
+    $cstRequest = \App\Models\CSTRequest::find($cstid);
+@endphp
+
+@if($authRole == 'User' && $cstRequest && (int)$cstRequest->step == 12)
+    @php
+        $teamEval = \App\Models\TeamLeaderEvaluation::where('cst_request_id', $cstid)->first();
+    @endphp
+    @if($teamEval && $teamEval->decision == 'approve')
+    <div class="minn m-3 p-3">
+        <form action="{{ route('cst.final.acceptance.submit') }}" method="POST">
+            @csrf
+            <input type="hidden" name="cst_request_id" value="{{ $cstid }}">
+            <div class="card" style="max-width:640px; margin:0 auto;">
+                <div class="card-header">
+                    <h4 style="font-size:18px; font-weight:600; color:#333; margin:0;">
+                        <i class="fa fa-lock me-2"></i> CST Final Acceptance
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label" style="font-weight:500; color:#495057;">CST's Decision</label>
+                            <select class="form-select" name="decision" required>
+                                <option value="">-- Select Decision --</option>
+                                <option value="accept">Accept</option>
+                                <option value="reject">Reject</option>
+                                <option value="review">Need Review</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" style="font-weight:500; color:#495057;">CST's Notes</label>
+                        <textarea class="form-control" name="notes" rows="3"
+                            placeholder="Please add your notes if there is any..."></textarea>
+                    </div>
+                    <div class="d-flex justify-content-end gap-2 mt-3">
+                        <a href="{{ url('cstform') }}" class="btn btn-secondary">
+                            <i class="fa fa-arrow-left me-1"></i> Back
+                        </a>
+                        <button type="submit" class="btn btn-primary"
+                            style="background:linear-gradient(45deg,#4e73df,#224abe); border:none; padding:8px 18px; border-radius:8px;">
+                            <i class="fa fa-save me-1"></i> Submit Final Acceptance
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+    @endif
+@endif

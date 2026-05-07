@@ -97,6 +97,10 @@
                         <span class="badge bg-secondary ms-1">{{ number_format($apexHistoryCount) }}</span>
                     @endisset
                 </a>
+            @elseif($role == 'User')
+                <a href="{{ route('apex.history') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="fa fa-history me-1"></i> My History
+                </a>
             @endif
             @if($role == 'User' || $position === 'Project Manager')
                 <a href="{{ route('cstform.create') }}" class="btn btn-primary">
@@ -143,28 +147,23 @@
                             $status = ($step == 12 && $statusValue == 4)
                                 ? ['label' => 'Pending', 'class' => 'warning']
                                 : ($statusMap[$statusValue] ?? ['label' => 'Unknown', 'class' => 'secondary']);
+                            $isClosed = in_array((string)$data->status, ['3', '5', '6']);
                         @endphp
                         <tr>
                             <td>{{ $data->unique_request_id ?? 'N/A' }}</td>
-                            <td>{{ $data->created_at->toDayDateTimeString() ?? 'N/A'}}</td>
                             <td>{{ $data->user->name ?? 'N/A' }}</td>
                             <td><span class="badge bg-{{ $status['class'] }}">{{ $status['label'] }}</span></td>
                             <td>
                                 @if($data->assign_to == Auth::id() && $data->status == 1)
-                                    <div class="btn-group">
-                                        <button type="button" class="btn btn-success btn-sm"
-                                                onclick="approveRequest({{ $data->id }})">
-                                            <i class="fa fa-check me-1"></i> Approve
-                                        </button>
-{{--                                        <button type="button" class="btn btn-warning btn-sm"--}}
-{{--                                                onclick="rejectRequest({{ $data->id }})">--}}
-{{--                                            <i class="fa fa-check me-1"></i> Send Back--}}
-{{--                                        </button>--}}
-                                    </div>
+                                    <button type="button" class="btn btn-success btn-sm"
+                                            onclick="approveRequest({{ $data->id }})">
+                                        <i class="fa fa-check me-1"></i> Approve
+                                    </button>
+                                @elseif(!$isClosed)
+                                    <a href="{{ route('cstform.view', $data->id) }}" class="btn btn-info btn-sm">
+                                        <i class="fa fa-eye me-1"></i> View
+                                    </a>
                                 @endif
-                                <a href="{{ route('assign.tester', ['id' => $data->id]) }}" class="btn btn-info btn-sm">
-                                    <i class="fa fa-cogs me-1"></i> Process
-                                </a>
                             </td>
                             <td>{{ $data->created_at->toDayDateTimeString() ?? 'N/A'}}</td>
                             <td>

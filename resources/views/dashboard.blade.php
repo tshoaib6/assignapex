@@ -80,52 +80,71 @@
 </h1>
 
 @php
-    use App\Models\{SelectedChecklist, CSTRequest};
+    use App\Models\{SelectedChecklist, CSTRequest, Pixel};
     use Carbon\Carbon;
 
-    $startDate = request('start_date');
-    $endDate   = request('end_date');
-    $ticketId  = request('ticket_id');
+    $startDate   = request('start_date');
+    $endDate     = request('end_date');
+    $ticketId    = request('ticket_id');
+    $quarter     = request('quarter');
+    $pixelFilter = request('pixel');
 
-    // Base query for cost calculation
-    $costQuery = CSTRequest::query();
+    // Convert quarter selection to a date range (current year, overrides manual dates only when no manual range is set)
+    if ($quarter && !($startDate && $endDate)) {
+        $year = (int) Carbon::now()->year;
+        $quarterMap = [
+            'Q1' => [$year . '-01-01', $year . '-03-31'],
+            'Q2' => [$year . '-04-01', $year . '-06-30'],
+            'Q3' => [$year . '-07-01', $year . '-09-30'],
+            'Q4' => [$year . '-10-01', $year . '-12-31'],
+        ];
+        if (isset($quarterMap[$quarter])) {
+            $startDate = $quarterMap[$quarter][0];
+            $endDate   = $quarterMap[$quarter][1];
+        }
+    }
 
+    $endDateTime = ($startDate && $endDate) ? Carbon::parse($endDate)->endOfDay() : null;
+
+    // Shared base query builder closure
+    $applyFilters = function ($query) use ($startDate, $endDate, $endDateTime, $ticketId, $pixelFilter) {
+        if ($startDate && $endDate) {
+            $query->whereBetween('created_at', [$startDate, $endDateTime]);
+        }
+        if ($ticketId) {
+            $query->where('id', $ticketId);
+        }
+        if ($pixelFilter) {
+            $query->where('pixel', $pixelFilter);
+        }
+        return $query;
+    };
+
+    $baseQuery         = $applyFilters(CSTRequest::query());
+    $totalCost         = (clone $baseQuery)->sum('total_cost');
+    $totalCstRequests  = (clone $baseQuery)->count();
+    $completedRequests = (clone $baseQuery)->where('status', 5)->count();
+    $pendingRequests   = (clone $baseQuery)->where('status', 1)->count();
+
+    // KM — filter via cstRequest relationship
+    $kmQuery = SelectedChecklist::query();
     if ($startDate && $endDate) {
-        // Ensure end date includes the full day
-        $endDateTime = Carbon::parse($endDate)->endOfDay();
-        $costQuery->whereBetween('created_at', [$startDate, $endDateTime]);
+        $kmQuery->whereHas('cstRequest', fn($q) => $q->whereBetween('created_at', [$startDate, $endDateTime]));
     }
-
     if ($ticketId) {
-        $costQuery->where('id', $ticketId);
+        $kmQuery->where('cst_request_id', $ticketId);
     }
+    if ($pixelFilter) {
+        $kmQuery->whereHas('cstRequest', fn($q) => $q->where('pixel', $pixelFilter));
+    }
+    $totalWorkingKm = $kmQuery->sum('total_km');
 
-    $totalCost = $costQuery->sum('total_cost');
-
-    // Other stats (global, not filtered by ticket unless desired, usually global stats remain global)
-    // However, if you want all stats to filter by date, apply date filter to them too.
-    // For now, keeping them global as per typical dashboard behavior, but cost is filtered.
-
-    $totalWorkingKm     = SelectedChecklist::sum('total_km');
-    $totalCstRequests   = CSTRequest::count();
-    $pendingRequests    = CSTRequest::where('status', 1)->count();
-    $completedRequests  = CSTRequest::where('status', 5)->count();
-
-    // Fetch all tickets for the dropdown
+    // Dropdowns
     $allTickets = CSTRequest::select('id', 'unique_request_id')->orderBy('created_at', 'desc')->get();
+    $allPixels  = Pixel::orderBy('region')->get(['id', 'grid_id', 'region', 'city']);
 
-    // Latest requests for the table
-    $latestRequestsQuery = CSTRequest::with('user')->latest();
-
-    // Apply filters to the table as well if desired
-    if ($startDate && $endDate) {
-         $endDateTime = Carbon::parse($endDate)->endOfDay();
-         $latestRequestsQuery->whereBetween('created_at', [$startDate, $endDateTime]);
-    }
-    if ($ticketId) {
-        $latestRequestsQuery->where('id', $ticketId);
-    }
-
+    // Latest requests table
+    $latestRequestsQuery = $applyFilters(CSTRequest::with('user')->latest());
     $latestRequests = $latestRequestsQuery->take(10)->get();
 @endphp
 
@@ -136,16 +155,37 @@
     </div>
     <div class="card-body">
         <form method="GET" class="row g-3 align-items-end">
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label for="start_date" class="form-label">Start Date</label>
                 <input type="date" id="start_date" name="start_date" class="form-control" value="{{ request('start_date') }}">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label for="end_date" class="form-label">End Date</label>
                 <input type="date" id="end_date" name="end_date" class="form-control" value="{{ request('end_date') }}">
             </div>
-            <div class="col-md-3">
-                <label for="ticket_id" class="form-label">Select Ticket</label>
+            <div class="col-md-2">
+                <label for="quarter" class="form-label">Quarter</label>
+                <select class="form-select" id="quarter" name="quarter">
+                    <option value="">-- All Quarters --</option>
+                    <option value="Q1" {{ request('quarter') == 'Q1' ? 'selected' : '' }}>Q1 (Jan – Mar)</option>
+                    <option value="Q2" {{ request('quarter') == 'Q2' ? 'selected' : '' }}>Q2 (Apr – Jun)</option>
+                    <option value="Q3" {{ request('quarter') == 'Q3' ? 'selected' : '' }}>Q3 (Jul – Sep)</option>
+                    <option value="Q4" {{ request('quarter') == 'Q4' ? 'selected' : '' }}>Q4 (Oct – Dec)</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="pixel" class="form-label">Pixel</label>
+                <select class="form-select select2" id="pixel" name="pixel">
+                    <option value="">-- All Pixels --</option>
+                    @foreach($allPixels as $px)
+                        <option value="{{ $px->grid_id }}" {{ request('pixel') == $px->grid_id ? 'selected' : '' }}>
+                            {{ $px->grid_id }}{{ $px->region ? ' — ' . $px->region : '' }}
+                        </option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="ticket_id" class="form-label">Ticket</label>
                 <select class="form-select select2" id="ticket_id" name="ticket_id">
                     <option value="">-- All Tickets --</option>
                     @foreach($allTickets as $ticket)
@@ -155,11 +195,11 @@
                     @endforeach
                 </select>
             </div>
-            <div class="col-md-3 d-flex gap-2">
-                <button type="submit" class="btn btn-primary w-50">
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary flex-fill">
                     <i class="fa fa-search"></i> Apply
                 </button>
-                <a href="{{ route('dashboard') }}" class="btn btn-secondary w-50">
+                <a href="{{ route('dashboard') }}" class="btn btn-secondary flex-fill">
                     <i class="fa fa-times"></i> Clear
                 </a>
             </div>
@@ -169,12 +209,12 @@
 
 @php
     $user = auth()->user()->roles;
-    $role = $user[0]->pivot->role_id;
+    $role = $user->first()?->pivot->role_id;
     $team = \Illuminate\Support\Facades\Auth::user();
     $position = optional($team->teamDetail)->position;
 @endphp
 
-@if($role === 2 || $position === 'Project Manager')
+@if((int) $role === 2 || $position === 'Project Manager')
     <div class="row g-3 mb-4">
         <div class="col-md-3">
             <div class="counter-card">
@@ -205,8 +245,10 @@
                     Total Cost
                     @if($ticketId)
                         <small class="d-block text-primary">(Filtered by Ticket)</small>
+                    @elseif($quarter)
+                        <small class="d-block text-primary">({{ $quarter }} {{ Carbon::now()->year }})</small>
                     @elseif($startDate && $endDate)
-                        <small class="d-block text-primary">({{ $startDate }} - {{ $endDate }})</small>
+                        <small class="d-block text-primary">({{ $startDate }} – {{ $endDate }})</small>
                     @endif
                 </div>
             </div>

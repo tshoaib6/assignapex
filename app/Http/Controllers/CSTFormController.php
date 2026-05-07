@@ -1329,12 +1329,8 @@ return view('map.index');
 }
 
 public function viewreport($id){
-    $cstid = $id ;
-    $user = auth()->user()->roles;
-    if( $user[0]->pivot->role_id === 2 ) {
-        return view('partials.client_report',compact('cstid'));
-    }
-    return view('partials.client_report',compact('cstid'));
+    $cstid = $id;
+    return view('partials.client_report', compact('cstid'));
 }
 
 public function viewcst($id){
@@ -1690,9 +1686,14 @@ public function redoacceptance($id)
     // ── Apex History ─────────────────────────────────────────────────────────
     public function apexHistory(Request $request)
     {
-        $q = trim((string) $request->get('q', ''));
+        $q        = trim((string) $request->get('q', ''));
+        $user     = Auth::user();
+        $position = optional($user->teamDetail)->position;
 
         $history = ApexHistory::query()
+            ->when($position !== 'Project Manager', function ($qry) use ($user) {
+                $qry->whereHas('cstRequest', fn($q) => $q->where('user_id', $user->id));
+            })
             ->when($q, fn($qry) => $qry->where('process_id', 'like', "%{$q}%")
                 ->orWhere('step_name', 'like', "%{$q}%")
                 ->orWhere('step_user', 'like', "%{$q}%"))
